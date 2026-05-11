@@ -5,15 +5,19 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 const API = process.env.NEXT_PUBLIC_API_URL;
 
 export function useApplications(token, filters) {
-  const [performers, setPerformers] = useState([]);
-  const [vendors, setVendors]       = useState([]);
-  const [isLoading, setIsLoading]   = useState(true);
-  const [error, setError]           = useState(null);
+  const [{ performers, vendors, isLoading, error }, setState] = useState({
+    performers: [],
+    vendors: [],
+    isLoading: true,
+    error: null,
+  });
 
   const fetchAll = useCallback(async () => {
     if (!token) return;
-    setIsLoading(true);
-    setError(null);
+    // Yield before touching state so this is never a synchronous setState
+    // call from within a useEffect body (React 19 compiler rule).
+    await Promise.resolve();
+    setState(s => ({ ...s, isLoading: true, error: null }));
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [pRes, vRes] = await Promise.all([
@@ -24,12 +28,14 @@ export function useApplications(token, filters) {
       if (!pRes.ok || !vRes.ok) throw new Error('Failed to fetch applications');
 
       const [pData, vData] = await Promise.all([pRes.json(), vRes.json()]);
-      setPerformers(pData.items ?? []);
-      setVendors(vData.items ?? []);
+      setState({
+        performers: pData.items ?? [],
+        vendors:    vData.items ?? [],
+        isLoading:  false,
+        error:      null,
+      });
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
+      setState(s => ({ ...s, isLoading: false, error: err.message }));
     }
   }, [token]);
 
