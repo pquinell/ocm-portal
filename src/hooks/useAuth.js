@@ -48,47 +48,71 @@ function isExpired(token) {
   return Date.now() >= payload.exp * 1000 - 60_000; // 1 min buffer
 }
 
-// ── Refresh helper (module-level — no component state needed) ─────────────────
-
-async function refreshToken(token) {
-  try {
-    const data = await cognitoRequest('InitiateAuth', {
-      AuthFlow: 'REFRESH_TOKEN_AUTH',
-      ClientId: CLIENT_ID,
-      AuthParameters: { REFRESH_TOKEN: token },
-    });
-    const newToken = data.AuthenticationResult.IdToken;
-    sessionStorage.setItem(TOKEN_KEY, newToken);
-    return newToken;
-  } catch {
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(REFRESH_KEY);
-    return null;
-  }
-}
-
 // ── Context ───────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [{ token, isLoading }, setAuth] = useState({ token: null, isLoading: true });
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const stored = sessionStorage.getItem(TOKEN_KEY);
+    return (stored && !isExpired(stored)) ? stored : null;
+  });
+  // isLoading is true only when we have a refresh token to attempt — avoids
+  // synchronous setState calls inside the effect below
+  const [isLoading, setIsLoading] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = sessionStorage.getItem(TOKEN_KEY);
+    if (stored && !isExpired(stored)) return false;
+    return !!sessionStorage.getItem(REFRESH_KEY);
+  });
 
-  // sessionStorage is unavailable during SSR, so all auth resolution happens here.
-  // All setAuth calls are deferred to async callbacks to satisfy React 19's rule
-  // against synchronous setState inside an effect body.
+  // Resolve isLoading on mount: attempt a token refresh if needed, otherwise no-op
   useEffect(() => {
     const stored = sessionStorage.getItem(TOKEN_KEY);
     const refresh = sessionStorage.getItem(REFRESH_KEY);
-    if (stored && !isExpired(stored)) {
-      Promise.resolve().then(() => setAuth({ token: stored, isLoading: false }));
-    } else if (refresh) {
-      refreshToken(refresh)
-        .then(tok => setAuth({ token: tok, isLoading: false }))
-        .catch(() => setAuth({ token: null, isLoading: false }));
-    } else {
-      Promise.resolve().then(() => setAuth({ token: null, isLoading: false }));
-    }
+
+    const work = (!stored || isExpired(stored)) && refresh
+      ? cognitoRequest('InitiateAuth', {
+          AuthFlow: 'REFRESH_TOKEN_AUTH',
+          ClientId: CLIENT_ID,
+          AuthParameters: { REFRESH_TOKEN: refresh },
+        }).then((data) => {
+          const newToken = data.AuthenticationResult.IdToken;
+          sessionStorage.setItem(TOKEN_KEY, newToken);
+          setToken(newToken);
+        }).catch(() => {
+          sessionStorage.removeItem(TOKEN_KEY);
+          sessionStorage.removeItem(REFRESH_KEY);
+        })
+      : Promise.resolve();
+
+    work.finally(() => setIsLoading(false));
+  }, []);
+
+  const signUp = useCallback(async (email, password) => {
+    const data = await cognitoRequest('SignUp', {
+      ClientId: CLIENT_ID,
+      Username: email,
+      Password: password,
+      UserAttributes: [{ Name: 'email', Value: email }],
+    });
+    return data;
+  }, []);
+
+  const confirmSignUp = useCallback(async (email, code) => {
+    await cognitoRequest('ConfirmSignUp', {
+      ClientId: CLIENT_ID,
+      Username: email,
+      ConfirmationCode: code,
+    });
+  }, []);
+
+  const resendCode = useCallback(async (email) => {
+    await cognitoRequest('ResendConfirmationCode', {
+      ClientId: CLIENT_ID,
+      Username: email,
+    });
   }, []);
 
   const signIn = useCallback(async (email, password) => {
@@ -101,18 +125,18 @@ export function AuthProvider({ children }) {
     const refreshTok   = data.AuthenticationResult.RefreshToken;
     sessionStorage.setItem(TOKEN_KEY, idToken);
     sessionStorage.setItem(REFRESH_KEY, refreshTok);
-    setAuth({ token: idToken, isLoading: false });
+    setToken(idToken);
     return idToken;
-  }, [setAuth]);
+  }, []);
 
   const signOut = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(REFRESH_KEY);
-    setAuth({ token: null, isLoading: false });
-  }, [setAuth]);
+    setToken(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ token, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ token, isLoading, signIn, signOut, signUp, confirmSignUp, resendCode }}>
       {children}
     </AuthContext.Provider>
   );
