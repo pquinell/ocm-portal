@@ -1,65 +1,116 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import ApplicationTable from '@/components/ApplicationTable';
+import FilterBar from '@/components/FilterBar';
+import StatsBar from '@/components/StatsBar';
+import ApplicationDrawer from '@/components/ApplicationDrawer';
+import { useApplications } from '@/hooks/useApplications';
+import { useAuth } from '@/hooks/useAuth';
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const { token, isLoading: authLoading, signOut } = useAuth();
+  const [filters, setFilters] = useState({ type: '', status: '', search: '' });
+  const [selectedApp, setSelectedApp] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const { applications, stats, isLoading, refetch } = useApplications(token, filters);
+
+  useEffect(() => {
+    if (!authLoading && !token) {
+      router.push('/login');
+    }
+  }, [token, authLoading, router]);
+
+  const handleSelect = useCallback((app) => {
+    setSelectedApp(app);
+    setDrawerOpen(true);
+  }, []);
+
+  const handleDrawerClose = useCallback(() => {
+    setDrawerOpen(false);
+    setTimeout(() => setSelectedApp(null), 300);
+  }, []);
+
+  const handleStatusUpdate = useCallback(() => {
+    refetch();
+    handleDrawerClose();
+  }, [refetch, handleDrawerClose]);
+
+  if (authLoading) return <LoadingScreen />;
+  if (!token) return null;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="min-h-screen bg-[#0a0c10] text-white">
+      {/* Top nav */}
+      <nav className="border-b border-white/5 bg-[#0d0f14]/80 backdrop-blur-xl sticky top-0 z-40">
+        <div className="max-w-[1600px] mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-red-500 to-rose-700 flex items-center justify-center text-xs font-bold">
+              🎄
+            </div>
+            <span className="font-semibold text-sm tracking-tight">OCM Portal</span>
+            <span className="text-white/20 text-xs font-mono">2026</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-white/30 font-mono">ocm_2026</span>
+            <button
+              onClick={signOut}
+              className="text-xs text-white/40 hover:text-white/70 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-[1600px] mx-auto px-6 py-8 space-y-6">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Applications</h1>
+            <p className="text-white/40 text-sm mt-1">
+              Review and manage 2026 performer and vendor applications
+            </p>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <StatsBar stats={stats} isLoading={isLoading} />
+
+        {/* Filters */}
+        <FilterBar filters={filters} onChange={setFilters} />
+
+        {/* Table */}
+        <ApplicationTable
+          applications={applications}
+          isLoading={isLoading}
+          onSelect={handleSelect}
+          selectedId={selectedApp?.applicationId}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
+
+      {/* Detail drawer */}
+      <ApplicationDrawer
+        application={selectedApp}
+        open={drawerOpen}
+        token={token}
+        onClose={handleDrawerClose}
+        onStatusUpdate={handleStatusUpdate}
+      />
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen bg-[#0a0c10] flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-8 h-8 border-2 border-white/10 border-t-white/60 rounded-full animate-spin" />
+        <span className="text-white/30 text-sm">Loading portal...</span>
+      </div>
     </div>
   );
 }
