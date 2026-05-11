@@ -13,7 +13,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { token, isLoading: authLoading, signOut } = useAuth();
   const [filters, setFilters] = useState({ type: '', status: '', search: '' });
-  const [selectedApp, setSelectedApp] = useState(null);
+  const [selectedApp, setSelectedApp] = useState<{ applicationId: string; type: string; [key: string]: unknown } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { applications, stats, isLoading, refetch } = useApplications(token, filters);
@@ -24,7 +24,7 @@ export default function DashboardPage() {
     }
   }, [token, authLoading, router]);
 
-  const handleSelect = useCallback((app) => {
+  const handleSelect = useCallback((app: { applicationId: string; type: string; [key: string]: unknown }) => {
     setSelectedApp(app);
     setDrawerOpen(true);
   }, []);
