@@ -48,46 +48,48 @@ function isExpired(token) {
   return Date.now() >= payload.exp * 1000 - 60_000; // 1 min buffer
 }
 
+// ── Refresh helper (module-level — no component state needed) ─────────────────
+
+async function refreshToken(token) {
+  try {
+    const data = await cognitoRequest('InitiateAuth', {
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: CLIENT_ID,
+      AuthParameters: { REFRESH_TOKEN: token },
+    });
+    const newToken = data.AuthenticationResult.IdToken;
+    sessionStorage.setItem(TOKEN_KEY, newToken);
+    return newToken;
+  } catch {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
+    return null;
+  }
+}
+
 // ── Context ───────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken]     = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [{ token, isLoading }, setAuth] = useState({ token: null, isLoading: true });
 
-  // Restore token on mount
+  // sessionStorage is unavailable during SSR, so all auth resolution happens here.
+  // All setAuth calls are deferred to async callbacks to satisfy React 19's rule
+  // against synchronous setState inside an effect body.
   useEffect(() => {
     const stored = sessionStorage.getItem(TOKEN_KEY);
+    const refresh = sessionStorage.getItem(REFRESH_KEY);
     if (stored && !isExpired(stored)) {
-      setToken(stored);
+      Promise.resolve().then(() => setAuth({ token: stored, isLoading: false }));
+    } else if (refresh) {
+      refreshToken(refresh)
+        .then(tok => setAuth({ token: tok, isLoading: false }))
+        .catch(() => setAuth({ token: null, isLoading: false }));
     } else {
-      // Try to refresh
-      const refresh = sessionStorage.getItem(REFRESH_KEY);
-      if (refresh) {
-        refreshToken(refresh).then(setToken).catch(() => {}).finally(() => setIsLoading(false));
-        return;
-      }
+      Promise.resolve().then(() => setAuth({ token: null, isLoading: false }));
     }
-    setIsLoading(false);
   }, []);
-
-  async function refreshToken(refreshToken) {
-    try {
-      const data = await cognitoRequest('InitiateAuth', {
-        AuthFlow: 'REFRESH_TOKEN_AUTH',
-        ClientId: CLIENT_ID,
-        AuthParameters: { REFRESH_TOKEN: refreshToken },
-      });
-      const newToken = data.AuthenticationResult.IdToken;
-      sessionStorage.setItem(TOKEN_KEY, newToken);
-      return newToken;
-    } catch {
-      sessionStorage.removeItem(TOKEN_KEY);
-      sessionStorage.removeItem(REFRESH_KEY);
-      return null;
-    }
-  }
 
   const signIn = useCallback(async (email, password) => {
     const data = await cognitoRequest('InitiateAuth', {
@@ -99,15 +101,15 @@ export function AuthProvider({ children }) {
     const refreshTok   = data.AuthenticationResult.RefreshToken;
     sessionStorage.setItem(TOKEN_KEY, idToken);
     sessionStorage.setItem(REFRESH_KEY, refreshTok);
-    setToken(idToken);
+    setAuth({ token: idToken, isLoading: false });
     return idToken;
-  }, []);
+  }, [setAuth]);
 
   const signOut = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(REFRESH_KEY);
-    setToken(null);
-  }, []);
+    setAuth({ token: null, isLoading: false });
+  }, [setAuth]);
 
   return (
     <AuthContext.Provider value={{ token, isLoading, signIn, signOut }}>
