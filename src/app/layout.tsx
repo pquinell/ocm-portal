@@ -6,7 +6,7 @@ export const metadata = {
   description: 'Ottawa Christmas Market staff portal for reviewing applications',
 };
 
-export default function RootLayout({ children }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className="antialiased">
