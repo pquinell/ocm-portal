@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 
-const API = process.env.NEXT_PUBLIC_API_URL;
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'https://api.ottawachristmasmarket.com';
 
 export function useApplications(token, filters) {
   const [{ performers, vendors, isLoading, error }, setState] = useState({
@@ -76,7 +76,7 @@ export function useApplications(token, filters) {
       total:      all.length,
       pending:    all.filter(a => a.status === 'Pending').length,
       approved:   all.filter(a => a.status === 'Approved').length,
-      rejected:   all.filter(a => a.status === 'Rejected').length,
+      waitlisted:   all.filter(a => a.status === 'Waitlisted').length,
       performers: performers.length,
       vendors:    vendors.length,
     };
@@ -88,17 +88,58 @@ export function useApplications(token, filters) {
 // ── Single application actions ────────────────────────────────────────────────
 
 export async function updateStatus(token, applicationId, type, status, note) {
+  let reviewedBy;
+  try {
+    reviewedBy = JSON.parse(atob(token.split('.')[1])).email;
+  } catch {
+    // leave undefined if token can't be decoded
+  }
+
+  const historyEntry = {
+    status,
+    timestamp: new Date().toISOString(),
+    ...(reviewedBy ? { reviewedBy } : {}),
+    ...(note ? { note } : {}),
+  };
+
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${applicationId}/status`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ type, status, ...(note ? { note } : {}) }),
+    body: JSON.stringify({ type, status, ...(note ? { note } : {}), ...(reviewedBy ? { reviewedBy } : {}), historyEntry }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error ?? 'Failed to update status');
+  }
+  return res.json();
+}
+
+export async function addNote(token, applicationId, type, text) {
+  let author;
+  try {
+    author = JSON.parse(atob(token.split('.')[1])).email;
+  } catch {}
+
+  const noteEntry = {
+    text,
+    timestamp: new Date().toISOString(),
+    ...(author ? { author } : {}),
+  };
+
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${applicationId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ type, noteEntry }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? 'Failed to save note');
   }
   return res.json();
 }

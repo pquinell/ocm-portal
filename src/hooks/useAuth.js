@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useReducer, useEffect, useCallback, createContext, useContext } from 'react';
 
 const REGION      = process.env.NEXT_PUBLIC_AWS_REGION      ?? 'ca-central-1';
 const CLIENT_ID   = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID;
@@ -30,6 +30,9 @@ function friendlyError(type, message) {
     UserNotConfirmedException: 'Please verify your email before signing in.',
     PasswordResetRequiredException: 'You must reset your password before signing in.',
     TooManyRequestsException:  'Too many attempts. Please wait a moment and try again.',
+    CodeMismatchException:     'Invalid verification code.',
+    ExpiredCodeException:      'Verification code has expired. Please request a new one.',
+    InvalidPasswordException:  'Password does not meet requirements.',
   };
   return map[type] ?? message ?? 'An unexpected error occurred.';
 }
@@ -48,46 +51,51 @@ function isExpired(token) {
   return Date.now() >= payload.exp * 1000 - 60_000; // 1 min buffer
 }
 
+// ── Reducer ───────────────────────────────────────────────────────────────────
+
+function authReducer(state, action) {
+  switch (action.type) {
+    case 'resolve': return { token: action.token ?? null, isLoading: false };
+    case 'set_token': return { ...state, token: action.token };
+    default: return state;
+  }
+}
+
 // ── Context ───────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    const stored = sessionStorage.getItem(TOKEN_KEY);
-    return (stored && !isExpired(stored)) ? stored : null;
-  });
-  // isLoading is true only when we have a refresh token to attempt — avoids
-  // synchronous setState calls inside the effect below
-  const [isLoading, setIsLoading] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    const stored = sessionStorage.getItem(TOKEN_KEY);
-    if (stored && !isExpired(stored)) return false;
-    return !!sessionStorage.getItem(REFRESH_KEY);
-  });
+  // Initial state always matches server render — sessionStorage hydrated in useEffect.
+  const [{ token, isLoading }, dispatch] = useReducer(authReducer, { token: null, isLoading: true });
 
-  // Resolve isLoading on mount: attempt a token refresh if needed, otherwise no-op
   useEffect(() => {
     const stored = sessionStorage.getItem(TOKEN_KEY);
     const refresh = sessionStorage.getItem(REFRESH_KEY);
 
-    const work = (!stored || isExpired(stored)) && refresh
-      ? cognitoRequest('InitiateAuth', {
-          AuthFlow: 'REFRESH_TOKEN_AUTH',
-          ClientId: CLIENT_ID,
-          AuthParameters: { REFRESH_TOKEN: refresh },
-        }).then((data) => {
-          const newToken = data.AuthenticationResult.IdToken;
-          sessionStorage.setItem(TOKEN_KEY, newToken);
-          setToken(newToken);
-        }).catch(() => {
-          sessionStorage.removeItem(TOKEN_KEY);
-          sessionStorage.removeItem(REFRESH_KEY);
-        })
-      : Promise.resolve();
+    if (stored && !isExpired(stored)) {
+      dispatch({ type: 'resolve', token: stored });
+      return;
+    }
 
-    work.finally(() => setIsLoading(false));
+    if (refresh) {
+      cognitoRequest('InitiateAuth', {
+        AuthFlow: 'REFRESH_TOKEN_AUTH',
+        ClientId: CLIENT_ID,
+        AuthParameters: { REFRESH_TOKEN: refresh },
+      }).then((data) => {
+        const newToken = data.AuthenticationResult.IdToken;
+        sessionStorage.setItem(TOKEN_KEY, newToken);
+        dispatch({ type: 'resolve', token: newToken });
+      }).catch(() => {
+        sessionStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(REFRESH_KEY);
+        dispatch({ type: 'resolve', token: null });
+      });
+      return;
+    }
+
+    dispatch({ type: 'resolve', token: null });
   }, []);
 
   const signUp = useCallback(async (email, password) => {
@@ -121,22 +129,38 @@ export function AuthProvider({ children }) {
       ClientId: CLIENT_ID,
       AuthParameters: { USERNAME: email, PASSWORD: password },
     });
-    const idToken      = data.AuthenticationResult.IdToken;
-    const refreshTok   = data.AuthenticationResult.RefreshToken;
+    const idToken    = data.AuthenticationResult.IdToken;
+    const refreshTok = data.AuthenticationResult.RefreshToken;
     sessionStorage.setItem(TOKEN_KEY, idToken);
     sessionStorage.setItem(REFRESH_KEY, refreshTok);
-    setToken(idToken);
+    dispatch({ type: 'set_token', token: idToken });
     return idToken;
+  }, []);
+
+  const forgotPassword = useCallback(async (email) => {
+    await cognitoRequest('ForgotPassword', {
+      ClientId: CLIENT_ID,
+      Username: email,
+    });
+  }, []);
+
+  const confirmForgotPassword = useCallback(async (email, code, newPassword) => {
+    await cognitoRequest('ConfirmForgotPassword', {
+      ClientId: CLIENT_ID,
+      Username: email,
+      ConfirmationCode: code,
+      Password: newPassword,
+    });
   }, []);
 
   const signOut = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(REFRESH_KEY);
-    setToken(null);
+    dispatch({ type: 'set_token', token: null });
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, isLoading, signIn, signOut, signUp, confirmSignUp, resendCode }}>
+    <AuthContext.Provider value={{ token, isLoading, signIn, signOut, signUp, confirmSignUp, resendCode, forgotPassword, confirmForgotPassword }}>
       {children}
     </AuthContext.Provider>
   );

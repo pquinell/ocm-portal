@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { updateStatus, deleteApplication } from '@/hooks/useApplications';
+import { updateStatus, deleteApplication, addNote } from '@/hooks/useApplications';
 
 const STATUS_STYLES = {
-  Pending:  'bg-amber-400/10 text-amber-400 border-amber-400/20',
-  Approved: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/20',
-  Rejected: 'bg-red-400/10 text-red-400 border-red-400/20',
+  Pending:   'bg-amber-400/10 text-amber-400 border-amber-400/20',
+  Approved:  'bg-emerald-400/10 text-emerald-400 border-emerald-400/20',
+  Waitlisted: 'bg-blue-400/10 text-blue-400 border-blue-400/20',
 };
 
 function Field({ label, value }) {
@@ -27,25 +27,46 @@ function formatDate(iso) {
   });
 }
 
-export default function ApplicationDrawer({ application: app, open, token, onClose, onStatusUpdate }) {
-  const [note, setNote]         = useState('');
-  const [loading, setLoading]   = useState(null); // 'approve' | 'reject' | 'delete'
+export default function ApplicationDrawer({ application: app, open, token, onClose, onStatusUpdate, onApplicationUpdate }) {
+  const [loading, setLoading]   = useState(null); // 'approve' | 'waitlist' | 'delete'
   const [error, setError]       = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [newNote, setNewNote]       = useState('');
+  const [noteLoading, setNoteLoading] = useState(false);
 
   if (!app) return null;
 
   const handleStatus = async (status) => {
-    setLoading(status === 'Approved' ? 'approve' : 'reject');
+    setLoading(status === 'Approved' ? 'approve' : 'waitlist');
     setError('');
     try {
-      await updateStatus(token, app.applicationId, app.type, status, note);
-      setNote('');
-      onStatusUpdate();
+      await updateStatus(token, app.applicationId, app.type, status);
+      setSuccessMsg(`Status updated to ${status}`);
+      setTimeout(() => {
+        setSuccessMsg('');
+        onStatusUpdate();
+      }, 1500);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(null);
+    }
+  };
+
+  const handleAddNote = async () => {
+    const text = newNote.trim();
+    if (!text) return;
+    setNoteLoading(true);
+    setError('');
+    try {
+      const result = await addNote(token, app.applicationId, app.type, text);
+      setNewNote('');
+      onApplicationUpdate?.(result.application);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setNoteLoading(false);
     }
   };
 
@@ -212,9 +233,73 @@ export default function ApplicationDrawer({ application: app, open, token, onClo
               <div className="border-t border-white/5" />
               <section>
                 <h3 className="text-xs font-semibold text-white/20 uppercase tracking-widest mb-3">Review Note</h3>
-                <div className="bg-white/[0.03] border border-white/8 rounded-xl p-4 text-sm text-white/60">
+                <div className="bg-white/3 border border-white/8 rounded-xl p-4 text-sm text-white/60">
                   {app.reviewNote}
                 </div>
+              </section>
+            </>
+          )}
+
+          {/* Notes */}
+          <div className="border-t border-white/5" />
+          <section>
+            <h3 className="text-xs font-semibold text-white/20 uppercase tracking-widest mb-3">Notes</h3>
+            {app.notes?.length > 0 && (
+              <ol className="space-y-2 mb-3">
+                {[...app.notes].reverse().map((n, i) => (
+                  <li key={i} className="bg-white/3 border border-white/8 rounded-xl px-4 py-3 space-y-1">
+                    <p className="text-sm text-white/70">{n.text}</p>
+                    <p className="text-xs text-white/30">
+                      {n.author && <span>{n.author} · </span>}
+                      {formatDate(n.timestamp)}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+            <div className="flex gap-2 items-end">
+              <textarea
+                value={newNote}
+                onChange={e => setNewNote(e.target.value)}
+                placeholder="Add a note..."
+                rows={2}
+                className="flex-1 bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/20 resize-none transition-colors"
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={noteLoading || !newNote.trim()}
+                className="px-4 py-3 bg-white/8 hover:bg-white/12 text-white/70 hover:text-white text-sm font-medium rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {noteLoading ? '...' : 'Save'}
+              </button>
+            </div>
+          </section>
+
+          {/* Review history */}
+          {app.history?.length > 0 && (
+            <>
+              <div className="border-t border-white/5" />
+              <section>
+                <h3 className="text-xs font-semibold text-white/20 uppercase tracking-widest mb-3">History</h3>
+                <ol className="space-y-3">
+                  {[...app.history].reverse().map((entry, i) => (
+                    <li key={i} className="flex gap-3 text-xs">
+                      <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
+                        entry.status === 'Approved'   ? 'bg-emerald-400' :
+                        entry.status === 'Waitlisted' ? 'bg-blue-400' :
+                        'bg-amber-400'
+                      }`} />
+                      <div className="space-y-0.5">
+                        <p className="text-white/70">
+                          <span className="font-medium">{entry.status}</span>
+                          {entry.reviewedBy && <span className="text-white/40"> · {entry.reviewedBy}</span>}
+                        </p>
+                        {entry.note && <p className="text-white/40 italic">{entry.note}</p>}
+                        <p className="text-white/25">{formatDate(entry.timestamp)}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
               </section>
             </>
           )}
@@ -224,26 +309,23 @@ export default function ApplicationDrawer({ application: app, open, token, onClo
           <dl className="space-y-2">
             <Field label="Submitted" value={formatDate(app.submittedAt)} />
             <Field label="Last updated" value={formatDate(app.updatedAt)} />
+            <Field label="Reviewed by" value={app.reviewedBy} />
           </dl>
 
         </div>
 
         {/* Action footer */}
         <div className="shrink-0 border-t border-white/5 px-6 py-4 space-y-3 bg-[#0f1117]">
+          {successMsg && (
+            <div className="text-xs text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-lg px-3 py-2">
+              {successMsg}
+            </div>
+          )}
           {error && (
             <div className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
-
-          {/* Note input */}
-          <textarea
-            value={note}
-            onChange={e => setNote(e.target.value)}
-            placeholder="Add a note (optional — sent to applicant)"
-            rows={2}
-            className="w-full bg-white/[0.03] border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/20 resize-none transition-colors"
-          />
 
           {/* Status buttons */}
           <div className="flex gap-2">
@@ -260,16 +342,16 @@ export default function ApplicationDrawer({ application: app, open, token, onClo
               ) : '✓ Approve'}
             </button>
             <button
-              onClick={() => handleStatus('Rejected')}
-              disabled={!!loading || app.status === 'Rejected'}
-              className="flex-1 bg-red-500/90 hover:bg-red-500 text-white text-sm font-semibold py-2.5 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              onClick={() => handleStatus('Waitlisted')}
+              disabled={!!loading || app.status === 'Waitlisted'}
+              className="flex-1 bg-blue-500/90 hover:bg-blue-500 text-white text-sm font-semibold py-2.5 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              {loading === 'reject' ? (
+              {loading === 'waitlist' ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Rejecting...
+                  Waitlisting...
                 </span>
-              ) : '✕ Reject'}
+              ) : '⏳ Waitlist'}
             </button>
           </div>
 
