@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const [selectedApp, setSelectedApp] = useState<{ applicationId: string; type: string; [key: string]: unknown } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const { applications, stats, isLoading, refetch } = useApplications(token, filters);
+  const { applications, stats, isLoading, refetch } = useApplications(filters);
 
   useEffect(() => {
     if (!authLoading && !token) {

@@ -4,18 +4,12 @@ import { useState, useCallback } from 'react';
 
 const KEY = 'ocm_schedule_2026';
 
-function loadEntries() {
-  if (typeof window === 'undefined') return [];
-  try { return JSON.parse(localStorage.getItem(KEY) ?? '[]'); }
-  catch { return []; }
-}
-
 function persist(entries) {
   localStorage.setItem(KEY, JSON.stringify(entries));
 }
 
 export function useSchedule() {
-  const [entries, setEntries] = useState(loadEntries);
+  const [entries, setEntries] = useState([]);
 
   const addEntry = useCallback((entry) => {
     setEntries(prev => {
@@ -41,5 +35,10 @@ export function useSchedule() {
     });
   }, []);
 
-  return { entries, addEntry, removeEntry, updateEntry };
+  const loadEntries = useCallback((newEntries) => {
+    setEntries(newEntries);
+    persist(newEntries);
+  }, []);
+
+  return { entries, addEntry, removeEntry, updateEntry, loadEntries };
 }

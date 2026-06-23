@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { useSchedule } from '@/hooks/useSchedule';
+import { addPerformerScheduleEntry, removePerformerScheduleEntry } from '@/hooks/useApplications';
+import { useApplicationsContext } from '@/context/ApplicationsContext';
 import { WEEKENDS, MARKET_DAYS, STAGES } from '@/lib/marketDates';
 
 const START_HOUR  = 11; // 11 AM
@@ -38,7 +40,7 @@ const EMPTY_FORM = { performerName: '', startTime: '', endTime: '' };
 export default function SchedulePage() {
   const router = useRouter();
   const { token, isLoading: authLoading, signOut } = useAuth();
-  const { entries, addEntry, removeEntry } = useSchedule();
+  const { entries, addEntry, removeEntry, loadEntries } = useSchedule();
 
   const [selectedWeekend, setSelectedWeekend] = useState(0);
   const [selectedDate, setSelectedDate]       = useState(WEEKENDS[0].days[0]);
@@ -46,22 +48,25 @@ export default function SchedulePage() {
   const [hoverInfo, setHoverInfo]             = useState(null); // { stage, y, time }
   const [form, setForm]                       = useState(EMPTY_FORM);
   const [formError, setFormError]             = useState('');
-  const [performers, setPerformers]           = useState([]);
+  const { performers, updatePerformer } = useApplicationsContext();
 
   useEffect(() => {
     if (!authLoading && !token) router.push('/login');
   }, [token, authLoading, router]);
 
   useEffect(() => {
-    if (!token) return;
-    const API = process.env.NEXT_PUBLIC_API_URL ?? 'https://api.ottawachristmasmarket.com';
-    fetch(`${API}/applications?type=Performer&limit=100`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => r.json())
-      .then(data => setPerformers((data.items ?? []).filter(p => p.status !== 'Waitlisted')))
-      .catch(() => {});
-  }, [token]);
+    const scheduleEntries = performers
+      .filter(p => p.status !== 'Waitlisted')
+      .flatMap(p =>
+        (p.scheduleEntries ?? []).map(e => ({
+          ...e,
+          id: `${p.applicationId}__${e.date}__${e.stage}__${e.startTime}`,
+          performerName: p.bandName || p.applicantName,
+          applicationId: p.applicationId,
+        }))
+      );
+    loadEntries(scheduleEntries);
+  }, [performers, loadEntries]);
 
   if (authLoading) return <LoadingScreen />;
   if (!token) return null;
@@ -81,16 +86,51 @@ export default function SchedulePage() {
     setFormError('');
   };
 
-  const handleAdd = (stage) => {
+  const handleAdd = async (stage) => {
     if (!form.performerName.trim()) { setFormError('Performer name is required.'); return; }
     if (!form.startTime)            { setFormError('Start time is required.'); return; }
     if (!form.endTime)              { setFormError('End time is required.'); return; }
     if (form.startTime >= form.endTime) { setFormError('End time must be after start time.'); return; }
 
-    addEntry({ performerName: form.performerName.trim(), date: selectedDate, stage, startTime: form.startTime, endTime: form.endTime });
+    addEntry({
+      performerName: form.performerName.trim(),
+      date: selectedDate,
+      stage,
+      startTime: form.startTime,
+      endTime: form.endTime,
+      applicationId: selectedPerformer?.applicationId ?? null,
+    });
+
+    if (selectedPerformer?.applicationId) {
+      const newEntry = { date: selectedDate, stage, startTime: form.startTime, endTime: form.endTime };
+      try {
+        const result = await addPerformerScheduleEntry(token, selectedPerformer.applicationId, newEntry);
+        updatePerformer(selectedPerformer.applicationId, result.application);
+      } catch {
+        // schedule saved locally; backend sync failed silently
+      }
+    }
+
     setForm(EMPTY_FORM);
     setFormError('');
     setAddingFor(null);
+  };
+
+  const handleRemove = async (entry) => {
+    removeEntry(entry.id);
+
+    if (entry.applicationId) {
+      const performer = performers.find(p => p.applicationId === entry.applicationId);
+      const updatedEntries = (performer?.scheduleEntries ?? []).filter(
+        e => !(e.date === entry.date && e.stage === entry.stage && e.startTime === entry.startTime && e.endTime === entry.endTime)
+      );
+      try {
+        const result = await removePerformerScheduleEntry(token, entry.applicationId, updatedEntries, entry);
+        updatePerformer(entry.applicationId, result.application);
+      } catch {
+        // local entry already removed; backend sync failed silently
+      }
+    }
   };
 
   const openAddForm = (stage, startTime = '') => {
@@ -119,7 +159,8 @@ export default function SchedulePage() {
   const colClass = STAGES.length > 2 ? 'grid-cols-3' : 'grid-cols-2';
 
   const availablePerformers = performers.filter(p =>
-    !p.availability?.length || p.availability.includes(selectedDate)
+    p.status !== 'Waitlisted' &&
+    (!p.availability?.length || p.availability.includes(selectedDate))
   );
 
   const selectedPerformer = availablePerformers.find(
@@ -278,7 +319,7 @@ export default function SchedulePage() {
                             </p>
                           </div>
                           <button
-                            onClick={() => removeEntry(entry.id)}
+                            onClick={() => handleRemove(entry)}
                             title="Remove"
                             className="text-white/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0 mt-0.5"
                           >

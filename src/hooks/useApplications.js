@@ -1,45 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
+import { useApplicationsContext } from '@/context/ApplicationsContext';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'https://api.ottawachristmasmarket.com';
-
-export function useApplications(token, filters) {
-  const [{ performers, vendors, isLoading, error }, setState] = useState({
-    performers: [],
-    vendors: [],
-    isLoading: true,
-    error: null,
-  });
-
-  const fetchAll = useCallback(async () => {
-    if (!token) return;
-    // Yield before touching state so this is never a synchronous setState
-    // call from within a useEffect body (React 19 compiler rule).
-    await Promise.resolve();
-    setState(s => ({ ...s, isLoading: true, error: null }));
-    try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [pRes, vRes] = await Promise.all([
-        fetch(`${API}/applications?type=Performer&limit=100`, { headers }),
-        fetch(`${API}/applications?type=Vendor&limit=100`, { headers }),
-      ]);
-
-      if (!pRes.ok || !vRes.ok) throw new Error('Failed to fetch applications');
-
-      const [pData, vData] = await Promise.all([pRes.json(), vRes.json()]);
-      setState({
-        performers: pData.items ?? [],
-        vendors:    vData.items ?? [],
-        isLoading:  false,
-        error:      null,
-      });
-    } catch (err) {
-      setState(s => ({ ...s, isLoading: false, error: err.message }));
-    }
-  }, [token]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+export function useApplications(filters) {
+  const { performers, vendors, isLoading, error, refetch: refetchAll } = useApplicationsContext();
 
   // Client-side filtering
   const applications = useMemo(() => {
@@ -82,7 +47,7 @@ export function useApplications(token, filters) {
     };
   }, [performers, vendors]);
 
-  return { applications, stats, isLoading, error, refetch: fetchAll };
+  return { applications, stats, isLoading, error, refetch: refetchAll };
 }
 
 // ── Single application actions ────────────────────────────────────────────────
@@ -140,6 +105,57 @@ export async function addNote(token, applicationId, type, text) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error ?? 'Failed to save note');
+  }
+  return res.json();
+}
+
+function decodeEmail(token) {
+  try { return JSON.parse(atob(token.split('.')[1])).email; }
+  catch { return undefined; }
+}
+
+export async function addPerformerScheduleEntry(token, applicationId, scheduleEntry) {
+  const scheduledBy = decodeEmail(token);
+  const historyEntry = {
+    action: 'Scheduled',
+    stage: scheduleEntry.stage,
+    date: scheduleEntry.date,
+    startTime: scheduleEntry.startTime,
+    endTime: scheduleEntry.endTime,
+    timestamp: new Date().toISOString(),
+    ...(scheduledBy ? { scheduledBy } : {}),
+  };
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${applicationId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type: 'Performer', scheduleEntry, historyEntry }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? 'Failed to save schedule entry');
+  }
+  return res.json();
+}
+
+export async function removePerformerScheduleEntry(token, applicationId, scheduleEntries, removedEntry) {
+  const scheduledBy = decodeEmail(token);
+  const historyEntry = {
+    action: 'Unscheduled',
+    stage: removedEntry.stage,
+    date: removedEntry.date,
+    startTime: removedEntry.startTime,
+    endTime: removedEntry.endTime,
+    timestamp: new Date().toISOString(),
+    ...(scheduledBy ? { scheduledBy } : {}),
+  };
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${applicationId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type: 'Performer', scheduleEntries, historyEntry }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? 'Failed to remove schedule entry');
   }
   return res.json();
 }

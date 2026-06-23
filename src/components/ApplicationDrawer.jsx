@@ -27,6 +27,17 @@ function formatDate(iso) {
   });
 }
 
+function fmt12(time24) {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+function fmtDay(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 export default function ApplicationDrawer({ application: app, open, token, onClose, onStatusUpdate, onApplicationUpdate }) {
   const [loading, setLoading]   = useState(null); // 'approve' | 'waitlist' | 'delete'
   const [error, setError]       = useState('');
@@ -172,6 +183,24 @@ export default function ApplicationDrawer({ application: app, open, token, onClo
             </dl>
           </section>
 
+          {/* Scheduled performances */}
+          {app.type === 'Performer' && app.scheduleEntries?.length > 0 && (
+            <>
+              <div className="border-t border-white/5" />
+              <section>
+                <h3 className="text-xs font-semibold text-white/20 uppercase tracking-widest mb-3">Scheduled Performances</h3>
+                <ol className="space-y-2">
+                  {[...app.scheduleEntries].sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)).map((e, i) => (
+                    <li key={i} className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-4 py-3 text-xs space-y-0.5">
+                      <p className="text-white/70 font-medium">{e.stage}</p>
+                      <p className="text-white/40">{fmtDay(e.date)} · {fmt12(e.startTime)} – {fmt12(e.endTime)}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </>
+          )}
+
           {/* Online presence */}
           {(app.website || app.instagram || app.facebook || app.twitter) && (
             <>
@@ -285,15 +314,26 @@ export default function ApplicationDrawer({ application: app, open, token, onClo
                   {[...app.history].reverse().map((entry, i) => (
                     <li key={i} className="flex gap-3 text-xs">
                       <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
-                        entry.status === 'Approved'   ? 'bg-emerald-400' :
-                        entry.status === 'Waitlisted' ? 'bg-blue-400' :
+                        entry.status === 'Approved'    ? 'bg-emerald-400' :
+                        entry.status === 'Waitlisted'  ? 'bg-blue-400'   :
+                        entry.action === 'Scheduled'   ? 'bg-purple-400' :
+                        entry.action === 'Unscheduled' ? 'bg-red-400'    :
                         'bg-amber-400'
                       }`} />
                       <div className="space-y-0.5">
-                        <p className="text-white/70">
-                          <span className="font-medium">{entry.status}</span>
-                          {entry.reviewedBy && <span className="text-white/40"> · {entry.reviewedBy}</span>}
-                        </p>
+                        {entry.status && (
+                          <p className="text-white/70">
+                            <span className="font-medium">{entry.status}</span>
+                            {entry.reviewedBy && <span className="text-white/40"> · {entry.reviewedBy}</span>}
+                          </p>
+                        )}
+                        {(entry.action === 'Scheduled' || entry.action === 'Unscheduled') && (
+                          <p className="text-white/70">
+                            <span className="font-medium">{entry.action}</span>
+                            <span className="text-white/40"> · {entry.stage} · {fmtDay(entry.date)} · {fmt12(entry.startTime)}–{fmt12(entry.endTime)}</span>
+                            {entry.scheduledBy && <span className="text-white/40"> · {entry.scheduledBy}</span>}
+                          </p>
+                        )}
                         {entry.note && <p className="text-white/40 italic">{entry.note}</p>}
                         <p className="text-white/25">{formatDate(entry.timestamp)}</p>
                       </div>
