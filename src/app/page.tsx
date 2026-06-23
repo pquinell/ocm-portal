@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import ApplicationTable from '@/components/ApplicationTable';
 import FilterBar from '@/components/FilterBar';
 import StatsBar from '@/components/StatsBar';
@@ -16,7 +17,7 @@ export default function DashboardPage() {
   const [selectedApp, setSelectedApp] = useState<{ applicationId: string; type: string; [key: string]: unknown } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const { applications, stats, isLoading, refetch } = useApplications(token, filters);
+  const { applications, stats, isLoading, refetch } = useApplications(filters);
 
   useEffect(() => {
     if (!authLoading && !token) {
@@ -39,6 +40,11 @@ export default function DashboardPage() {
     handleDrawerClose();
   }, [refetch, handleDrawerClose]);
 
+  const handleApplicationUpdate = useCallback((updatedApp: { applicationId: string; type: string; [key: string]: unknown }) => {
+    setSelectedApp(updatedApp);
+    refetch();
+  }, [refetch]);
+
   if (authLoading) return <LoadingScreen />;
   if (!token) return null;
 
@@ -46,15 +52,17 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#0a0c10] text-white">
       {/* Top nav */}
       <nav className="border-b border-white/5 bg-[#0d0f14]/80 backdrop-blur-xl sticky top-0 z-40">
-        <div className="max-w-[1600px] mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-400 mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-red-500 to-rose-700 flex items-center justify-center text-xs font-bold">
+            <div className="w-7 h-7 rounded-lg bg-linear-to-br from-red-500 to-rose-700 flex items-center justify-center text-xs font-bold">
               🎄
             </div>
             <span className="font-semibold text-sm tracking-tight">OCM Portal</span>
             <span className="text-white/20 text-xs font-mono">2026</span>
           </div>
           <div className="flex items-center gap-4">
+            <Link href="/schedule" className="text-xs text-white/40 hover:text-white/70 transition-colors">Schedule</Link>
+            <span className="text-white/15">|</span>
             <span className="text-xs text-white/30 font-mono">ocm_2026</span>
             <button
               onClick={signOut}
@@ -66,7 +74,7 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <div className="max-w-[1600px] mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-400 mx-auto px-6 py-8 space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
@@ -99,6 +107,7 @@ export default function DashboardPage() {
         token={token}
         onClose={handleDrawerClose}
         onStatusUpdate={handleStatusUpdate}
+          onApplicationUpdate={handleApplicationUpdate}
       />
     </div>
   );

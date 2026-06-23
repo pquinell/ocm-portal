@@ -1,5 +1,6 @@
 import './globals.css';
 import { AuthProvider } from '@/hooks/useAuth';
+import { ApplicationsProvider } from '@/context/ApplicationsContext';
 
 export const metadata = {
   title: 'OCM Staff Portal — 2026 Applications',
@@ -11,7 +12,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="antialiased">
         <AuthProvider>
-          {children}
+          <ApplicationsProvider>
+            {children}
+          </ApplicationsProvider>
         </AuthProvider>
       </body>
     </html>

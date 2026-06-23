@@ -20,8 +20,8 @@ export default function SignUpPage() {
     e.preventDefault();
     setError('');
 
-    if (!email.endsWith('@oseg.ca')) {
-      setError('Only @oseg.ca email addresses are allowed.');
+    if (!email.endsWith('@oseg.ca') && !email.endsWith('@tdplace.ca')) {
+      setError('Only @oseg.ca or @tdplace.ca email addresses are allowed.');
       return;
     }
     if (password !== confirm) {
@@ -77,7 +77,7 @@ export default function SignUpPage() {
       <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-rose-700 mb-4 text-xl">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-linear-to-br from-red-500 to-rose-700 mb-4 text-xl">
             🎄
           </div>
           <h1 className="text-xl font-bold text-white tracking-tight">Create account</h1>
