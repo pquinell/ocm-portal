@@ -43,18 +43,26 @@ export function ApplicationsProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, isLoading: true, error: null }));
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [pRes, vRes] = await Promise.all([
-        fetch(`${API}/applications?type=Performer&limit=100`, { headers }),
-        fetch(`${API}/applications?type=Vendor&limit=100`, { headers }),
+
+      async function fetchAllPages(type: string): Promise<Application[]> {
+        const items: Application[] = [];
+        let lastKey: string | undefined;
+        do {
+          const url = `${API}/applications?type=${type}&limit=100${lastKey ? `&lastKey=${encodeURIComponent(lastKey)}` : ""}`;
+          const res = await fetch(url, { headers });
+          if (!res.ok) throw new Error(`Failed to fetch ${type} applications`);
+          const data = await res.json();
+          items.push(...(data.items ?? []));
+          lastKey = data.nextKey;
+        } while (lastKey);
+        return items;
+      }
+
+      const [performers, vendors] = await Promise.all([
+        fetchAllPages("Performer"),
+        fetchAllPages("Vendor"),
       ]);
-      if (!pRes.ok || !vRes.ok) throw new Error("Failed to fetch applications");
-      const [pData, vData] = await Promise.all([pRes.json(), vRes.json()]);
-      setState({
-        performers: pData.items ?? [],
-        vendors: vData.items ?? [],
-        isLoading: false,
-        error: null,
-      });
+      setState({ performers, vendors, isLoading: false, error: null });
     } catch (err) {
       setState((s) => ({ ...s, isLoading: false, error: (err as Error).message }));
     }

@@ -8,7 +8,9 @@ import FilterBar from '@/components/FilterBar';
 import StatsBar from '@/components/StatsBar';
 import ApplicationDrawer from '@/components/ApplicationDrawer';
 import { useApplications } from '@/hooks/useApplications';
+import { useApplicationsContext } from '@/context/ApplicationsContext';
 import { useAuth } from '@/hooks/useAuth';
+import { exportApplicationsToExcel } from '@/lib/exportToExcel';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -18,6 +20,7 @@ export default function DashboardPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { applications, stats, isLoading, refetch } = useApplications(filters);
+  const { performers, vendors } = useApplicationsContext();
 
   useEffect(() => {
     if (!authLoading && !token) {
@@ -62,6 +65,12 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-4">
             <Link href="/schedule" className="text-xs text-white/40 hover:text-white/70 transition-colors">Schedule</Link>
+            <button
+              onClick={() => exportApplicationsToExcel(performers, vendors)}
+              className="text-xs text-white/40 hover:text-white/70 transition-colors"
+            >
+              Export
+            </button>
             <span className="text-white/15">|</span>
             <span className="text-xs text-white/30 font-mono">ocm_2026</span>
             <button
